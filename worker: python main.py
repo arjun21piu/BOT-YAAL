@@ -1,6 +1,4 @@
-import os
-import json
-import time
+import os, json, time
 from threading import Thread, Timer
 from flask import Flask
 import telebot
@@ -8,6 +6,9 @@ from telebot import types
 from telebot.types import ReplyKeyboardMarkup
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise Exception("BOT_TOKEN Railway Variables me add nahi hai")
+
 bot = telebot.TeleBot(BOT_TOKEN)
 
 ADMINS = [7142950609]
@@ -24,17 +25,21 @@ app = Flask(__name__)
 def home():
     return "Bot is alive 💗"
 
-def load(file, default=[]):
+def load(file, default=None):
+    if default is None:
+        default = []
     if not os.path.exists(file):
         save(file, default)
         return default
     try:
-        return json.load(open(file, "r"))
+        with open(file, "r") as f:
+            return json.load(f)
     except:
         return default
 
 def save(file, data):
-    json.dump(data, open(file, "w"), indent=2)
+    with open(file, "w") as f:
+        json.dump(data, f, indent=2)
 
 def setup():
     load(CHANNELS_FILE, [
@@ -78,7 +83,8 @@ def is_joined(uid):
             m = bot.get_chat_member(ch["username"], uid)
             if m.status not in ["member", "administrator", "creator"]:
                 return False
-        except:
+        except Exception as e:
+            print("Join check error:", e)
             return False
     return True
 
@@ -154,91 +160,16 @@ def claim(c):
     )
     Timer(300, lambda: bot.delete_message(c.message.chat.id, sent.message_id)).start()
 
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text == "📋 List Channels")
-def list_channels(m):
-    text = "📋 𝗖𝗛𝗔𝗡𝗡𝗘𝗟𝗦\n\n"
-    for i, ch in enumerate(channels(), 1):
-        text += f"{i}. {ch['name']} — {ch['username']}\n"
-    bot.send_message(m.chat.id, text)
-
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text == "📦 List Rewards")
-def list_rewards(m):
-    text = "📦 𝗥𝗘𝗪𝗔𝗥𝗗𝗦\n\n"
-    for i, r in enumerate(rewards(), 1):
-        text += f"{i}. {r['name']} — {r['url']}\n"
-    bot.send_message(m.chat.id, text)
-
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text == "➕ Add Channel")
-def ask_add_channel(m):
-    msg = bot.send_message(m.chat.id, "Send:\nChannel Name | @username")
-    bot.register_next_step_handler(msg, add_channel)
-
-def add_channel(m):
-    name, username = [x.strip() for x in m.text.split("|")]
-    data = channels()
-    data.append({"name": name, "username": username})
-    save(CHANNELS_FILE, data)
-    bot.send_message(m.chat.id, "✅ Channel added")
-
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text == "❌ Remove Channel")
-def ask_remove_channel(m):
-    msg = bot.send_message(m.chat.id, "Send channel number:")
-    bot.register_next_step_handler(msg, remove_channel)
-
-def remove_channel(m):
-    data = channels()
-    removed = data.pop(int(m.text.strip()) - 1)
-    save(CHANNELS_FILE, data)
-    bot.send_message(m.chat.id, f"✅ Removed {removed['username']}")
-
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text == "🎁 Add Reward")
-def ask_add_reward(m):
-    msg = bot.send_message(m.chat.id, "Send:\nReward Name | https://link.com")
-    bot.register_next_step_handler(msg, add_reward)
-
-def add_reward(m):
-    name, url = [x.strip() for x in m.text.split("|")]
-    data = rewards()
-    data.append({"name": name, "url": url})
-    save(REWARDS_FILE, data)
-    bot.send_message(m.chat.id, "✅ Reward added")
-
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text == "🗑 Remove Reward")
-def ask_remove_reward(m):
-    msg = bot.send_message(m.chat.id, "Send reward number:")
-    bot.register_next_step_handler(msg, remove_reward)
-
-def remove_reward(m):
-    data = rewards()
-    removed = data.pop(int(m.text.strip()) - 1)
-    save(REWARDS_FILE, data)
-    bot.send_message(m.chat.id, f"✅ Removed {removed['name']}")
-
-@bot.message_handler(func=lambda m: is_admin(m.from_user.id) and m.text == "📊 Statistics")
-def statistics(m):
-    bot.send_message(m.chat.id, f"📊 Users: {len(load(USERS_FILE))}\n🚫 Banned: {len(load(BANNED_FILE))}")
-
-@bot.message_handler(commands=["broadcast"])
-def broadcast(m):
-    if not is_admin(m.from_user.id):
-        return
-    text = m.text.replace("/broadcast", "", 1).strip()
-    sent = 0
-    for uid in load(USERS_FILE):
-        try:
-            bot.send_message(uid, text)
-            sent += 1
-        except:
-            pass
-    bot.reply_to(m, f"✅ Sent: {sent}")
-
 def run_bot():
+    print("Telegram bot polling started...")
     while True:
         try:
-            bot.infinity_polling(skip_pending=True)
-        except:
+            bot.infinity_polling(skip_pending=True, timeout=60, long_polling_timeout=60)
+        except Exception as e:
+            print("BOT ERROR:", e)
             time.sleep(5)
 
 if __name__ == "__main__":
-    Thread(target=run_bot).start()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")))
+    Thread(target=run_bot, daemon=True).start()
+    port = int(os.getenv("PORT", "5000"))
+    app.run(host="0.0.0.0", port=port)
